@@ -20,7 +20,7 @@ This is a deployable application codebase, not a hosted/live website. Do not col
 6. Customer site: `/`. Admin sign-in: `/?admin=1`.
 
 ## SMS setup
-By default `OTP_MODE=console`; OTPs are printed in the server logs for development and no SMS is sent. Only after configuring and testing the Africa's Talking production account, API key and approved sender ID should `OTP_MODE=live` be enabled. Keep secrets in the hosting provider's secret/environment settings, never in source code or chat.
+`OTP_MODE` supports three values: `console` (prints OTPs in server logs; no SMS), `sandbox` (uses the Africa's Talking Sandbox API; test messages are simulated and do not reach real customers), and `live` (uses the production SMS API). For Sandbox set `AT_USERNAME=sandbox`, `AT_API_KEY` to the Sandbox API key, and `OTP_MODE=sandbox`. For live use your approved production username/API key and any approved sender ID, then set `OTP_MODE=live`. Keep secrets in the hosting provider's environment settings, never in source code or chat. Sandbox testing is not proof of live SMS delivery.
 
 ## Production checklist
 - Use a managed PostgreSQL database with backups and restricted access.

@@ -34,16 +34,36 @@ const requireUser = (req,res,next) => req.session.user ? next() : res.status(401
 const requireAdmin = (req,res,next) => req.session.admin ? next() : res.status(403).json({error:'Administrator access required.'});
 
 async function sendSms(phone, message) {
-  if (!process.env.AT_API_KEY || !process.env.AT_USERNAME || process.env.OTP_MODE !== 'live') {
-    console.log(`[SMS TEST to ${phone}] ${message}`); return {sent:false, mode:'console'};
+  const mode = String(process.env.OTP_MODE || 'console').toLowerCase();
+  if (mode === 'console') {
+    console.log(`[SMS TEST to ${phone}] ${message}`);
+    return { sent: false, mode: 'console' };
   }
+  if (!['sandbox', 'live'].includes(mode)) {
+    throw new Error('OTP_MODE must be console, sandbox, or live');
+  }
+  if (!process.env.AT_API_KEY || !process.env.AT_USERNAME) {
+    throw new Error(`Africa's Talking credentials are missing`);
+  }
+  if (mode === 'sandbox' && process.env.AT_USERNAME !== 'sandbox') {
+    throw new Error('For Sandbox testing, set AT_USERNAME to sandbox');
+  }
+  const endpoint = mode === 'sandbox'
+    ? 'https://api.sandbox.africastalking.com/version1/messaging'
+    : 'https://api.africastalking.com/version1/messaging';
   const params = new URLSearchParams({ username: process.env.AT_USERNAME, to: phone, message });
-  if (process.env.AT_SENDER_ID) params.set('from', process.env.AT_SENDER_ID);
-  const response = await fetch('https://api.africastalking.com/version1/messaging', {
-    method:'POST', headers:{'apiKey':process.env.AT_API_KEY,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'}, body:params
+  if (mode === 'live' && process.env.AT_SENDER_ID) params.set('from', process.env.AT_SENDER_ID);
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { apiKey: process.env.AT_API_KEY, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params
   });
-  if (!response.ok) throw new Error('SMS provider returned an error');
-  return {sent:true};
+  const responseText = await response.text();
+  if (!response.ok) {
+    console.error(`Africa's Talking response:`, response.status, responseText.slice(0, 500));
+    throw new Error(`Africa's Talking SMS request failed (${response.status})`);
+  }
+  return { sent: true, mode };
 }
 async function notify(userId, phone, title, body) {
   await pool.query('INSERT INTO notifications(user_id,title,body,channel) VALUES($1,$2,$3,$4)', [userId,title,body,'inbox']);
@@ -64,7 +84,7 @@ app.post('/api/register', async (req,res) => {
     const otp=String(crypto.randomInt(100000,999999));
     await pool.query('INSERT INTO otp_codes(user_id,code_hash,expires_at) VALUES($1,$2,NOW()+INTERVAL \'5 minutes\')',[user.id,hash(otp)]);
     await sendSms(phone,`Your Koro Loans KE verification code is ${otp}. It expires in 5 minutes. Do not share it.`);
-    res.status(201).json({message:process.env.OTP_MODE==='live'?'Account created. Enter the SMS code to verify your phone.':'Account created in test mode. Ask the developer to check the server console for the OTP.',testMode:process.env.OTP_MODE!=='live'});
+    res.status(201).json({message:['live','sandbox'].includes(String(process.env.OTP_MODE || '').toLowerCase())?'Account created. Enter the verification code.':'Account created in console test mode. Ask the administrator to check the server logs for the code.',testMode:!['live','sandbox'].includes(String(process.env.OTP_MODE || '').toLowerCase())});
   } catch(e) { if(e.code==='23505') return res.status(409).json({error:'That ID number or phone number is already registered.'}); console.error(e); res.status(500).json({error:'Could not create account.'}); }
 });
 app.post('/api/verify-phone', requireUser, async(req,res)=>{
